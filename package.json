@@ -11,6 +11,8 @@
   "license": "BSD-2-Clause",
   "dependencies": {
     "chalk": "^5.3.0",
-    "inquirer": "^9.2.8"
+    "dotenv": "^16.3.1",
+    "inquirer": "^9.2.8",
+    "p-queue": "^7.3.4"
   }
 }
