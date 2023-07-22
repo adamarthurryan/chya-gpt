@@ -1,5 +1,5 @@
 const URL = "https://api.openai.com/v1/chat/completions";
-const MODEL = "gpt-4";
+const MODEL = "gpt-3.5-turbo";
 
 async function request (messages, model=MODEL) {
     const response = await fetch(URL, {

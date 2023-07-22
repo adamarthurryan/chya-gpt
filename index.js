@@ -1,16 +1,16 @@
 import "dotenv/config";
 import request from "./request.js";
 
-import {renderHeader, renderNode} from "./renderTwee.js";
+import {renderHeaderTwee, renderNodeTwee} from "./renderTwee.js";
 import {createNodePrompt, createStartingPrompt} from "./createPrompt.js";
-import parseNodeFromResponse from "./parseNodeFromResponse.js";
+import parseTextAndChoicesFromResponse from "./parseTextAndChoicesFromResponse.js";
+
+import crypto from "crypto";
 
 import PQueue from 'p-queue';
 
 import fs from 'fs';
 
-
-const ROOT_NODE_ID = "Start";
 
 const OUTPUT_FILE = "./data/output.twee";
 let output = null;
@@ -21,8 +21,6 @@ function createOutput() {
 	output = fs.createWriteStream(OUTPUT_FILE, {
 	  flags: 'w' // open the file for writing
 	})
-
-    output.write(renderHeader(ROOT_NODE_ID));
 }
 createOutput();
 
@@ -34,64 +32,108 @@ createOutput();
 //too much coupling of this implicit tree structure among modules... 
 //should define a class at least
 
-
-let STARTING_MODEL="gpt-4";
-let DEPTH_MODEL="gpt-3.5-turbo";
+// ## State
+//database of nodes
+const nodes = {};
+let currentNode = null;
 
 //create promise queue
-const queue = new PQueue({concurrency: 20});
+const queue = new PQueue({concurrency: 5});
 
-const nodes = {};
+//generate first node
+const ROOT_NODE_ID = "Start";
 
+let rootNode = await generateStartNode();
+nodes[rootNode.id] = rootNode;
+currentNode = rootNode;
 
-//for debugging
-let MAX_DEPTH = 5;
+//output.write(renderHeaderTwee(ROOT_NODE_ID));
 
-async function generateNodesRec(messages, id, parentId, parentChoice, depth) {
-    //don't go too deep
-    if (depth >= MAX_DEPTH) return;
+while (true) {
+    displayNodeConsole(currentNode);
+    let input = await getChoiceConsole(); 
 
-    console.log(`Generating id:${id} depth:${depth} messages.length:${messages.length}`);
-
-    let response = await queue.add(() => request(messages));
-    let responseContent = response.choices[0].message.content;
-    let node = parseNodeFromResponse(responseContent);
-    node.id = id;
-    node.parentId = parentId;
-    node.parentChoice = parentChoice;
-
-    nodes[id] = node;
-
-    console.log("Generated ", id, depth);
-    
-    //write to twee file
-    let twee = renderNode(node);
-    console.log(twee);
-    output.write(twee)
-
-
-    for (let choice of node.choices) {
-        let messages = createNodePrompt(nodes, node, choice.text);
-        let id = choice.id;
-        let parentId = node.id;
-        generateNodesRec(messages, id, parentId, choice.text, depth+1);
+    //this should load an already-existing node if it has previously been generated
+    if (/^\d$/.test(input)) {
+        //get the choice index
+        let choiceNum = parseInt(input);
+        let choiceIndex = choiceNum-1;
+        //if it exists, set it to the current node
+        if (nodes[currentNode.choices[choiceIndex].id]) {
+            currentNode = nodes[currentNode.choices[choiceIndex].id];
+        }
+        //otherwise generate and update current
+        else {
+            let newNode = await generateNodeFromChoice(nodes, currentNode, choiceIndex)
+            nodes[newNode.id] = newNode;
+            currentNode = newNode;
+        }
     }
+    //go back to the parent node
+    else if (input == "<" || input =="back" || input == "b") {
+        currentNode = nodes[currentNode.parentId];
+    }
+    //otherwise this is a custom response
+    else {
+        let choice = input;
+        //add this choice to the node
+        let newChoiceId=crypto.randomUUID();
+        currentNode.choices.push({"id": newChoiceId, "text": choice});
+        let choiceIndex = currentNode.choices.length-1;
+
+        //generate a new node based on that choice
+        let newNode = await generateNodeFromChoice(nodes, currentNode, choiceIndex)
+        nodes[newNode.id] = newNode;
+        currentNode = newNode;
+    }
+
+}
+async function generateStartNode() {
+    //create starting message
+    let messages = createStartingPrompt();
+    let id = ROOT_NODE_ID;
+    let parentId = null;
+    let parentChoice = null
+
+    let node = {id, parentId, parentChoice};
+    let textAndChoices = await requestTextAndChoices(messages);
+    node = Object.assign(node, textAndChoices);
+    return node;
 }
 
-//create starting message
-let messages = createStartingPrompt();
-let id = ROOT_NODE_ID;
-let parentId = null;
-let parentChoice = null
+async function generateNodeFromChoice(nodes, node, choiceIndex) {
+    let messages = createNodePrompt(nodes, node, node.choices[choiceIndex].text);
+    let newNode = {id: node.choices[choiceIndex].id, parentId: node.id, parentChoice: node.choices[choiceIndex].text};
+    let textAndChoices = await requestTextAndChoices(messages);
+    newNode = Object.assign(newNode, textAndChoices);
+    return newNode;
+}
 
-await generateNodesRec(messages, id, parentId, parentChoice, 0);
+async function requestTextAndChoices(messages) {
+    let response = await queue.add(() => request(messages));
+    let responseContent = response.choices[0].message.content;
 
-//let twee = renderNodeToTwee(nodes, nodes["Start"]);
-//console.log(twee);
+    let node = parseTextAndChoicesFromResponse(responseContent);
+    return node;
+}
 
-//build a tree structure with each story path
-//enqueue each leaf as a request and build it out as a node when the request resolves
-//use a global cap on the number of requests to keep things under control
+function displayNodeConsole(node) { 
+    console.log(node.text);
+    for (let i=0; i<node.choices.length; i++) {
+        console.log(`${i+1}: ${node.choices[i].text}`);
+    }
+    console.log("<: back");
+}
 
-let requestCount = 0;
+function getChoiceConsole() {
+    return new Promise((resolve, reject) => {
+        process.stdin.once('data', function (data) {
+            resolve(data.toString().trim());
+        });
+    });
+}
 
+
+
+
+//await generateNodesRec(messages, id, parentId, parentChoice, 0);

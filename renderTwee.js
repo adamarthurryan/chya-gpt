@@ -1,4 +1,4 @@
-export function renderHeader(rootNodeId) {
+export function renderHeaderTwee(rootNodeId) {
     return `:: StoryTitle
 Choose Your Own Adventure GPT
 
@@ -12,7 +12,7 @@ Choose Your Own Adventure GPT
 `;
 }
 
-export function renderNode(node) {
+export function renderNodeTwee(node) {
     let string = `:: ${node.id}\n`;
     string += node.text;
     string += "\n";
