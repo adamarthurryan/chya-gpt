@@ -31,8 +31,17 @@ function createNodeMessages(nodes, node) {
     if (node.parentChoice)
         messages.push({ "role": "user", "content": node.parentChoice });
 
-    messages.push({ "role": "assistant", "content": node.text });
+    messages.push({ "role": "assistant", "content": renderNodeToContent(node) });
 
     return messages;
 }
 
+function renderNodeToContent(node) {
+    let string = node.text;
+    string += "\n\n";
+    let i=1;
+    for (let choice of node.choices) {
+        string += `${i}. ${choice.text}\n`;
+    }
+    return string;
+}

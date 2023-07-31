@@ -1,28 +1,27 @@
+import crypto from "crypto";
+import fs from 'fs/promises';
+import path from 'path';
+
+import PQueue from 'p-queue';
+import {select, input, editor} from '@inquirer/prompts';
 import "dotenv/config";
+
 import request from "./request.js";
 
 import {renderHeaderTwee, renderNodeTwee} from "./renderTwee.js";
 import {createNodePrompt, createStartingPrompt} from "./createPrompt.js";
 import parseTextAndChoicesFromResponse from "./parseTextAndChoicesFromResponse.js";
+import { dir } from "console";
 
-import crypto from "crypto";
+const PATH_SAVES = "./save";
+const EXT_SAVES = ".json";
 
-import PQueue from 'p-queue';
-
-import fs from 'fs';
+const ROOT_NODE_ID = "Start";
 
 
-const OUTPUT_FILE = "./data/output.twee";
-let output = null;
 
-function createOutput() {
-	console.log(`Create output file: ${OUTPUT_FILE}`)
-
-	output = fs.createWriteStream(OUTPUT_FILE, {
-	  flags: 'w' // open the file for writing
-	})
-}
-createOutput();
+//create promise queue
+const queue = new PQueue({concurrency: 5});
 
 //tree structure:
 // - node: id, parentId, parentChoice, text, choices
@@ -34,48 +33,125 @@ createOutput();
 
 // ## State
 //database of nodes
-const nodes = {};
+let nodes = {};
 let currentNode = null;
 
-//create promise queue
-const queue = new PQueue({concurrency: 5});
 
-//generate first node
-const ROOT_NODE_ID = "Start";
+let saveFile = null;
 
-let rootNode = await generateStartNode();
-nodes[rootNode.id] = rootNode;
-currentNode = rootNode;
 
-//output.write(renderHeaderTwee(ROOT_NODE_ID));
+/* 
+todo:
+    - prefetch next nodes
+    - indicate explored nodes
+    - inject failure states
+    - possibly estimate action successes
+    - allow select save / load file
+    - auto save
+    - export to twee
+    - edit node text?
+*/
+
+//should show main menu:
+// load save file
+// start new adventure
+
+//main menu
+let newOrLoad = await select({
+    message: "Load an existing game or start new?",
+    choices: [ 
+        {
+            name: "New",
+            value: "new",
+            description: "Start a new game"
+        },
+        {
+            name: "Load",
+            value: "load",
+            description: "Load a save game"
+        }
+    ]
+});
+
+
+//for a new game, pick a name for the save file, generate a start node, and save
+if (newOrLoad=="new") {
+
+    //name the save file
+    saveFile = await input({ message: 'Enter a name for the save file:' });
+    if (!saveFile.endsWith(EXT_SAVES))
+        saveFile+=EXT_SAVES;
+    saveFile = path.join(PATH_SAVES, saveFile);
+
+    //!!! sanitize filename
+    //!!! check if file exists
+
+    const ROOT_NODE_ID = "Start";
+    let rootNode = await generateStartNode();
+    nodes[rootNode.id] = rootNode;
+    currentNode = rootNode;
+
+    saveState(saveFile, {nodes, currentNode});
+}
+
+//for load a saved game, get the save file name and load 
+else {
+
+    //get the file names in save dir
+    const dirEntries = await fs.readdir(PATH_SAVES, {withFileTypes:true});
+    const fileChoices = dirEntries.filter(entry => entry.isFile() && entry.name.endsWith(EXT_SAVES)).map(entry=>entry.name).map(name=>({value:name}));
+
+    //prompt to select a save file
+    saveFile = await select({ message: 'Choose a save file:', choices:fileChoices});
+    saveFile = path.join(PATH_SAVES, saveFile);
+
+    //load the file
+    let state = await loadState(saveFile);
+    ({nodes, currentNode} = state);
+
+    //!!! file load error handling
+}
 
 while (true) {
     displayNodeConsole(currentNode);
-    let input = await getChoiceConsole(); 
-
-    //this should load an already-existing node if it has previously been generated
-    if (/^\d$/.test(input)) {
-        //get the choice index
-        let choiceNum = parseInt(input);
-        let choiceIndex = choiceNum-1;
-        //if it exists, set it to the current node
-        if (nodes[currentNode.choices[choiceIndex].id]) {
-            currentNode = nodes[currentNode.choices[choiceIndex].id];
+    let choices = currentNode.choices.map(({text, id})=>({value:id, name:text}));
+    
+    choices.push({value:"#other", name: "other", description:"enter a custom action"});
+    choices.push({value:"#back", name:"back", description:"go back to the previous page"});
+    choices.push({value: "#edit", name:"edit", description:"edit this story page"});
+    
+    let choice = await select({message:"Choose an option:", choices});
+    
+    if (!choice.startsWith("#")) {
+        //check if this node is already loaded
+        if (nodes[choice]) {
+            currentNode = nodes[choice];
         }
         //otherwise generate and update current
         else {
+            let choiceIndex = currentNode.choices.findIndex(({id}) => id==choice);
             let newNode = await generateNodeFromChoice(nodes, currentNode, choiceIndex)
             nodes[newNode.id] = newNode;
             currentNode = newNode;
         }
+
     }
+
     //go back to the parent node
-    else if (input == "<" || input =="back" || input == "b") {
+    else if (choice == "#back") {
         currentNode = nodes[currentNode.parentId];
     }
+    
+    //go back to the parent node
+    else if (choice == "#edit") {
+        let text = await editor({message: "Edit this page", default: currentNode.text});
+        currentNode.text = text;
+        //!!! regenerate choices?
+    }
     //otherwise this is a custom response
-    else {
-        let choice = input;
+    else if (choice == "#other") {
+        let choice = await input({message:"What is your action?"});
+
         //add this choice to the node
         let newChoiceId=crypto.randomUUID();
         currentNode.choices.push({"id": newChoiceId, "text": choice});
@@ -86,6 +162,9 @@ while (true) {
         nodes[newNode.id] = newNode;
         currentNode = newNode;
     }
+
+    //save the state
+    await saveState(saveFile, {nodes, currentNode});
 
 }
 async function generateStartNode() {
@@ -126,6 +205,7 @@ function displayNodeConsole(node) {
 }
 
 function getChoiceConsole() {
+    return input({message: "What do you chooose?"});
     return new Promise((resolve, reject) => {
         process.stdin.once('data', function (data) {
             resolve(data.toString().trim());
@@ -133,6 +213,19 @@ function getChoiceConsole() {
     });
 }
 
+async function saveState(filename, state) {
+    //!!! error handling
+    //should check output folder
+    
+    let data = JSON.stringify(state)
+    fs.writeFile(filename, data, "utf8")   
+}
+async function loadState(filename) {
+    //!!! error handling
+    let data = await fs.readFile(filename,{encoding:"utf8"} );
+    let state = JSON.parse(data);
+    return state;
+}
 
 
 
