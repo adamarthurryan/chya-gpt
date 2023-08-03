@@ -1,3 +1,1 @@
-export default `${process.env.SETTING}
-
-Begin by describing the story's setting and scenario and possible actions for the protagonist.`;
+export default `The protagonist is a beautiful and mysterious female thief - Rhys. The setting is a medieval Mediterranian port city. Sinister and disturbing rumours have been spreading about a new cult and Rhys is determined to infiltrate their dark ritual to learn their secrets.`;

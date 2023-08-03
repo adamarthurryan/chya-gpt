@@ -1,12 +1,15 @@
 import systemPrompt from "./prompts/system.js"
 import settingPrompt from './prompts/setting.js'
 
-//create a prompt for a story node incorporating its ancestors recursively
-export function createNodePrompt(nodes, node, choice) {
+//create a prompt for a story node from its path
+//the path is a list of {parent, choice} objects
+
+export function createNodePrompt(path) {
     let messages = createStartingPrompt();
-    
-    messages.push(...createNodeMessages(nodes, node));
-    messages.push({ "role": "user", "content": choice });
+    for ({node, choice} of path) {
+        messages.push(renderNodeToContent(node));
+        messages.push({ "role": "user", "content": choice.text });
+    }
 
     return messages;
 }
@@ -20,25 +23,10 @@ export function createStartingPrompt() {
     return messages;
 }
 
-//recursively generate messages for the node and all its ancestors
-function createNodeMessages(nodes, node) {
-    let messages;
-    if (node.parentId != null) 
-        messages = createNodeMessages(nodes, nodes[node.parentId]);
-    else
-        messages = [];
-
-    if (node.parentChoice)
-        messages.push({ "role": "user", "content": node.parentChoice });
-
-    messages.push({ "role": "assistant", "content": renderNodeToContent(node) });
-
-    return messages;
-}
 
 function renderNodeToContent(node) {
     let string = node.text;
-    string += "\n\n";
+
     let i=1;
     for (let choice of node.choices) {
         string += `${i}. ${choice.text}\n`;

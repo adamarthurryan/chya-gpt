@@ -2,40 +2,28 @@ import crypto from "crypto";
 import fs from 'fs/promises';
 import path from 'path';
 
-import PQueue from 'p-queue';
 import {select, input, editor} from '@inquirer/prompts';
 import "dotenv/config";
 
-import request from "./request.js";
 
 import {renderHeaderTwee, renderNodeTwee} from "./renderTwee.js";
-import {createNodePrompt, createStartingPrompt} from "./createPrompt.js";
-import parseTextAndChoicesFromResponse from "./parseTextAndChoicesFromResponse.js";
 import { dir } from "console";
 
 const PATH_SAVES = "./save";
 const EXT_SAVES = ".json";
 
-const ROOT_NODE_ID = "Start";
+import * as NodeStore from "./nodeStore.js";
+import { get } from "http";
 
-
-
-//create promise queue
-const queue = new PQueue({concurrency: 5});
 
 //tree structure:
 // - node: id, parentId, parentChoice, text, choices
 
 //choices are (id, text) pairs
 
-//too much coupling of this implicit tree structure among modules... 
-//should define a class at least
 
 // ## State
-//database of nodes
-let nodes = {};
 let currentNode = null;
-
 
 let saveFile = null;
 
@@ -46,7 +34,6 @@ todo:
     - indicate explored nodes
     - inject failure states
     - possibly estimate action successes
-    - allow select save / load file
     - auto save
     - export to twee
     - edit node text?
@@ -86,12 +73,11 @@ if (newOrLoad=="new") {
     //!!! sanitize filename
     //!!! check if file exists
 
-    const ROOT_NODE_ID = "Start";
-    let rootNode = await generateStartNode();
-    nodes[rootNode.id] = rootNode;
-    currentNode = rootNode;
+    //generate the start node
+    currentNode = NodeStore.getRootNode();
 
-    saveState(saveFile, {nodes, currentNode});
+    //save the state
+    await saveState(saveFile, {nodes:JSON.parse(NodeStore.serialize()), currentNode});
 }
 
 //for load a saved game, get the save file name and load 
@@ -107,7 +93,9 @@ else {
 
     //load the file
     let state = await loadState(saveFile);
-    ({nodes, currentNode} = state);
+    //!!!embarrasing
+    NodeStore.deserialize(JSON.stringify(state.nodes));
+    currentNode = state.currentNode;
 
     //!!! file load error handling
 }
@@ -123,26 +111,15 @@ while (true) {
     let choice = await select({message:"Choose an option:", choices});
     
     if (!choice.startsWith("#")) {
-        //check if this node is already loaded
-        if (nodes[choice]) {
-            currentNode = nodes[choice];
-        }
-        //otherwise generate and update current
-        else {
-            let choiceIndex = currentNode.choices.findIndex(({id}) => id==choice);
-            let newNode = await generateNodeFromChoice(nodes, currentNode, choiceIndex)
-            nodes[newNode.id] = newNode;
-            currentNode = newNode;
-        }
-
+        currentNode = await NodeStore.getNode(choice);
     }
 
     //go back to the parent node
     else if (choice == "#back") {
-        currentNode = nodes[currentNode.parentId];
+        currentNode = await NodeStore.getNode(currentNode.parentId);
     }
     
-    //go back to the parent node
+    //edit this node
     else if (choice == "#edit") {
         let text = await editor({message: "Edit this page", default: currentNode.text});
         currentNode.text = text;
@@ -153,55 +130,26 @@ while (true) {
         let choice = await input({message:"What is your action?"});
 
         //add this choice to the node
-        let newChoiceId=crypto.randomUUID();
-        currentNode.choices.push({"id": newChoiceId, "text": choice});
-        let choiceIndex = currentNode.choices.length-1;
+//        let newChoiceId=crypto.randomUUID();
+//       currentNode.choices.push({"id": newChoiceId, "text": choice});
+
+        //!!! need to use the NodeStore to add this choice to the node 
 
         //generate a new node based on that choice
-        let newNode = await generateNodeFromChoice(nodes, currentNode, choiceIndex)
-        nodes[newNode.id] = newNode;
-        currentNode = newNode;
+        let currentNode = await NodeStore.getNode(newChoiceId);
     }
 
     //save the state
-    await saveState(saveFile, {nodes, currentNode});
-
-}
-async function generateStartNode() {
-    //create starting message
-    let messages = createStartingPrompt();
-    let id = ROOT_NODE_ID;
-    let parentId = null;
-    let parentChoice = null
-
-    let node = {id, parentId, parentChoice};
-    let textAndChoices = await requestTextAndChoices(messages);
-    node = Object.assign(node, textAndChoices);
-    return node;
-}
-
-async function generateNodeFromChoice(nodes, node, choiceIndex) {
-    let messages = createNodePrompt(nodes, node, node.choices[choiceIndex].text);
-    let newNode = {id: node.choices[choiceIndex].id, parentId: node.id, parentChoice: node.choices[choiceIndex].text};
-    let textAndChoices = await requestTextAndChoices(messages);
-    newNode = Object.assign(newNode, textAndChoices);
-    return newNode;
-}
-
-async function requestTextAndChoices(messages) {
-    let response = await queue.add(() => request(messages));
-    let responseContent = response.choices[0].message.content;
-
-    let node = parseTextAndChoicesFromResponse(responseContent);
-    return node;
+    //!!! this is so lame
+//    await saveState(saveFile, {nodes:JSON.parse(NodeStore.serialize()), currentNode});
 }
 
 function displayNodeConsole(node) { 
     console.log(node.text);
-    for (let i=0; i<node.choices.length; i++) {
-        console.log(`${i+1}: ${node.choices[i].text}`);
-    }
-    console.log("<: back");
+//    for (let i=0; i<node.choices.length; i++) {
+//        console.log(`${i+1}: ${node.choices[i].text}`);
+//    }
+//    console.log("<: back");
 }
 
 function getChoiceConsole() {
