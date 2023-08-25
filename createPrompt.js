@@ -1,13 +1,13 @@
 import systemPrompt from "./prompts/system.js"
-import settingPrompt from './prompts/setting.js'
+import {getSetting} from './prompts/setting.js'
 
 //create a prompt for a story node from its path
 //the path is a list of {parent, choice} objects
 
 export function createNodePrompt(path) {
     let messages = createStartingPrompt();
-    for ({node, choice} of path) {
-        messages.push(renderNodeToContent(node));
+    for (let {node, choice} of path) {
+        messages.push({"role": "assistant", "content":renderNodeToContent(node)});
         messages.push({ "role": "user", "content": choice.text });
     }
 
@@ -18,7 +18,7 @@ export function createNodePrompt(path) {
 export function createStartingPrompt() {
     let messages = [];
     messages.push({ "role": "system", "content": systemPrompt });
-    messages.push({ "role": "user", "content": settingPrompt });
+    messages.push({ "role": "user", "content": getSetting() });
 
     return messages;
 }

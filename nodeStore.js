@@ -4,6 +4,7 @@ import {createNodePrompt, createStartingPrompt} from "./createPrompt.js";
 import parseTextAndChoicesFromResponse from "./parseTextAndChoicesFromResponse.js";
 import {startRequest, isLoading, getRequestPromise} from "./requestHandler.js";
 
+const ROOT_NODE_ID = "Start";
 
 export class Node {
     constructor({id, text, choices, parentId}) {
@@ -46,10 +47,11 @@ function buildPath(id) {
         return [];
     }
     else {
-        let parent = parents[id];
-        let choice = parent.getChoice(id);
+        let parent = nodes[parents[id]];
+
+        let choice = parent.choices.find(choice => choice.id == id);
         let path = buildPath(parent.id);
-        path.push({parent, choice});
+        path.push({node:parent, choice});
         return path;
     }
 }
@@ -65,13 +67,13 @@ export async function getRootNode() {
 //if it is not cached, load it
 //if it is loading, wait until it is complete
 export async function getNode(id) {
-    console.log("!!! get id: " + id);
-    console.log("!!! nodes[id]: " + JSON.stringify(nodes[id]));
+//    console.log("!!! get id: " + id);
+//    console.log("!!! nodes[id]: " + JSON.stringify(nodes[id]));
 
     if (nodes[id] == null) {
         //create a story path with nodes and choices
         let path = buildPath(id);
-        let parentId = path[path.length-1].parent.id;
+        let parentId = path.length>0 ? path[path.length-1].node.id : null;
 
         let content = null;
         //if this node is not cached, and if it is not loading, load it
@@ -85,7 +87,7 @@ export async function getNode(id) {
         }
         //otherwise if it is still loadimg, wait until it is comp lete
         else if (nodes[id] == null && isLoading(id)==true) {
-            content = await startRequest(id, messages);
+            content = await getRequestPromise(id);
         }
 
         let {text, choices} = parseTextAndChoicesFromResponse(content);
@@ -95,6 +97,7 @@ export async function getNode(id) {
         
         //start prefetching children
         for (let choice of choices) {
+            parents[choice.id] = id;
             prefetch(choice.id);
         }
 
@@ -105,6 +108,7 @@ export async function getNode(id) {
 
         //start prefetching children
         for (let choice of nodes[id].choices) {
+            parents[choice.id] = id;
             prefetch(choice.id);
         }
 
@@ -120,18 +124,23 @@ async function prefetch(id) {
     if (nodes[id] == null && isLoading(id)==false) {
         //create a story path with nodes and choices
         let path = buildPath(id);
-        let parentId = path[path.length-1] == null ? null : path[path.length-1].parent.id;
+        let parentId = path.length>0 ? path[path.length-1].node.id : null;
 
         //create message for node
         let messages = createNodePrompt(path);
 
         //load the node
-        let content = await startRequest(id, messages);
-
-        let {text, choices} = parseTextAndChoicesFromResponse(content);
-        let node = new Node({id, text, choices, parentId});
-        nodes[id] = node;
-        parents[id] = parentId;
+        try {
+            let content = await startRequest(id, messages);
+            let {text, choices} = parseTextAndChoicesFromResponse(content);
+            let node = new Node({id, text, choices, parentId});
+            nodes[id] = node;
+            parents[id] = parentId;    
+        }
+        catch (e) { 
+            console.log("!!! error loading node: " + id);
+            console.log(e);
+        }
     }
 }
 
@@ -141,6 +150,18 @@ export function serialize() {
 
 export function deserialize(json) {
     nodes = JSON.parse(json);
+    reindexParents();
+}
+
+//rebuild the parents map based on the current nodes in the store
+//ie after deserializing the nodes
+function reindexParents() {
+    for (let id in nodes) {
+        let node = nodes[id];
+        for (let choice of node.choices) {
+            parents[choice.id] = id;
+        }
+    }
 }
 
 //???

@@ -17,11 +17,9 @@ async function request (messages, model=MODEL) {
 
     //handle HTML error status
     if (!response.ok) {
-        console.log(messages);
-        throw new Error("Server error: "+response.statusText);
+        throw new Error(`Server error - ${response.statusText}`);
     }
             
-    
     return await response.json();
 }
 

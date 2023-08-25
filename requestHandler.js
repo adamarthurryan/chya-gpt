@@ -1,9 +1,11 @@
 import request from "./request.js";
 
-import PQueue from 'p-queue';
+//import PQueue from 'p-queue';
 
 //create promise queue
-const queue = new PQueue({concurrency: 5});
+//const queue = new PQueue({concurrency: 5});
+
+//queue.on("error", (e) => console.log("p-queue error: " + e));
 
 //map of ids to promise for request
 let loading = {};
@@ -11,13 +13,21 @@ let loading = {};
 //return a promise for the request with the given id
 export async function startRequest(id, message) {
     //add the request to the queue
-    let promise = queue.add(() => request(id, message));
+    let promise = request(message);
 
     //add to loading
     loading[id] = promise;
 
     //wait for the promise to complete
-    let response = await promise;
+    let response = null;
+    try {
+        response = await promise;
+    }
+    catch (e) {
+        //if the promise fails, remove from loading and re-throw the error
+        delete loading[id];
+        throw e;
+    }
     let responseContent = response.choices[0].message.content;
 
     //when promise is complete, remove from loading and return the response

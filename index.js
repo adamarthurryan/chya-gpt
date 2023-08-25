@@ -14,6 +14,7 @@ const EXT_SAVES = ".json";
 
 import * as NodeStore from "./nodeStore.js";
 import { get } from "http";
+import { setSetting, getSetting } from "./prompts/setting.js";
 
 
 //tree structure:
@@ -23,7 +24,7 @@ import { get } from "http";
 
 
 // ## State
-let currentNode = null;
+let currentNodeId = null;
 
 let saveFile = null;
 
@@ -73,11 +74,15 @@ if (newOrLoad=="new") {
     //!!! sanitize filename
     //!!! check if file exists
 
+    //!!! get user input for the setting
+    let setting = await editor({message: "Enter the setting for this story", default: getSetting()});
+    setSetting(setting);
+
     //generate the start node
-    currentNode = NodeStore.getRootNode();
+    currentNodeId = (await NodeStore.getRootNode()).id;
 
     //save the state
-    await saveState(saveFile, {nodes:JSON.parse(NodeStore.serialize()), currentNode});
+    await saveState(saveFile, {nodes:JSON.parse(NodeStore.serialize()), currentNodeId});
 }
 
 //for load a saved game, get the save file name and load 
@@ -95,13 +100,15 @@ else {
     let state = await loadState(saveFile);
     //!!!embarrasing
     NodeStore.deserialize(JSON.stringify(state.nodes));
-    currentNode = state.currentNode;
+    currentNodeId = state.currentNodeId;
 
     //!!! file load error handling
 }
 
 while (true) {
+    let currentNode = await NodeStore.getNode(currentNodeId);
     displayNodeConsole(currentNode);
+
     let choices = currentNode.choices.map(({text, id})=>({value:id, name:text}));
     
     choices.push({value:"#other", name: "other", description:"enter a custom action"});
@@ -111,18 +118,19 @@ while (true) {
     let choice = await select({message:"Choose an option:", choices});
     
     if (!choice.startsWith("#")) {
-        currentNode = await NodeStore.getNode(choice);
+        currentNodeId =  choice;
     }
 
     //go back to the parent node
     else if (choice == "#back") {
-        currentNode = await NodeStore.getNode(currentNode.parentId);
+        currentNodeId = currentNode.parentId;
     }
     
     //edit this node
     else if (choice == "#edit") {
         let text = await editor({message: "Edit this page", default: currentNode.text});
         currentNode.text = text;
+        //!!! save the new text
         //!!! regenerate choices?
     }
     //otherwise this is a custom response
@@ -136,12 +144,12 @@ while (true) {
         //!!! need to use the NodeStore to add this choice to the node 
 
         //generate a new node based on that choice
-        let currentNode = await NodeStore.getNode(newChoiceId);
+        let currentNodeId = newChoiceId;
     }
 
     //save the state
     //!!! this is so lame
-//    await saveState(saveFile, {nodes:JSON.parse(NodeStore.serialize()), currentNode});
+    await saveState(saveFile, {nodes:JSON.parse(NodeStore.serialize()), currentNodeId});
 }
 
 function displayNodeConsole(node) { 
@@ -150,15 +158,6 @@ function displayNodeConsole(node) {
 //        console.log(`${i+1}: ${node.choices[i].text}`);
 //    }
 //    console.log("<: back");
-}
-
-function getChoiceConsole() {
-    return input({message: "What do you chooose?"});
-    return new Promise((resolve, reject) => {
-        process.stdin.once('data', function (data) {
-            resolve(data.toString().trim());
-        });
-    });
 }
 
 async function saveState(filename, state) {
