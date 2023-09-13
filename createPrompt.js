@@ -14,6 +14,12 @@ export function createNodePrompt(path) {
     return messages;
 }
 
+export function createFailureNodePrompt(path) {
+    let messages = createNodePrompt(path);
+    messages.push({"role":"assistant", "content":"FAILURE"});
+    return messages;
+}
+
 //create a starting prompt with the system message and story setting
 export function createStartingPrompt() {
     let messages = [];

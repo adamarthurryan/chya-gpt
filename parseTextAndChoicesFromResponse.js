@@ -4,6 +4,10 @@ import crypto from "crypto";
 //extract the choices from the response and return a node
 //basically just extract any numbered list items and treat them as choices
 export default function parseTextAndChoicesFromResponse(content) {
+
+    if (typeof content.split != "function" ) {
+        console.log("content not a string?", content);
+    }
     //extract the numbered list items from the content string
     //also return the non-choice part of the content string
     let choices = [];

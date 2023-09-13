@@ -138,10 +138,10 @@ while (true) {
         let choice = await input({message:"What is your action?"});
 
         //add this choice to the node
-//        let newChoiceId=crypto.randomUUID();
-//       currentNode.choices.push({"id": newChoiceId, "text": choice});
+        let newChoiceId=crypto.randomUUID();
+        currentNode.choices.push({"id": newChoiceId, "text": choice});
 
-        //!!! need to use the NodeStore to add this choice to the node 
+        //??? need to use the NodeStore to add this choice to the node 
 
         //generate a new node based on that choice
         let currentNodeId = newChoiceId;

@@ -1,6 +1,6 @@
 
 
-import {createNodePrompt, createStartingPrompt} from "./createPrompt.js";
+import {createNodePrompt, createFailureNodePrompt, createStartingPrompt} from "./createPrompt.js";
 import parseTextAndChoicesFromResponse from "./parseTextAndChoicesFromResponse.js";
 import {startRequest, isLoading, getRequestPromise} from "./requestHandler.js";
 
@@ -75,12 +75,21 @@ export async function getNode(id) {
         let path = buildPath(id);
         let parentId = path.length>0 ? path[path.length-1].node.id : null;
 
+        //decide whether this story node will be a success or failure
+        // 20 % chance of failure
+        let failure = Math.random()*10 <= 2;
+        
+
         let content = null;
         //if this node is not cached, and if it is not loading, load it
         if (nodes[id] == null && isLoading(id)==false) {
 
             //create message for node
-            let messages = createNodePrompt(path);        
+            let messages = null;
+            if (failure) 
+                messages = createFailureNodePrompt(path);        
+            else
+                messages = createNodePrompt(path);
 
             //load the node
             content = await startRequest(id, messages);
@@ -126,8 +135,16 @@ async function prefetch(id) {
         let path = buildPath(id);
         let parentId = path.length>0 ? path[path.length-1].node.id : null;
 
+        //decide whether this story node will be a success or failure
+        // 20 % chance of failure
+        let failure = Math.random()*10 <= 2;
+
         //create message for node
-        let messages = createNodePrompt(path);
+        let messages = null;
+        if (failure) 
+            messages = createFailureNodePrompt(path);        
+        else
+            messages = createNodePrompt(path);
 
         //load the node
         try {
